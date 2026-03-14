@@ -1,0 +1,132 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── macOS ─────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .app
+        run: |
+          pyinstaller \
+            --windowed \
+            --name "Song Renamer" \
+            --collect-all librosa \
+            --collect-all soundfile \
+            --hidden-import PyQt6 \
+            --hidden-import soxr \
+            --hidden-import numba \
+            --icon icon.icns \
+            --noconfirm \
+            song_renamer.py
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "Song Renamer" \
+            --volicon icon.icns \
+            --window-pos 200 120 \
+            --window-size 620 440 \
+            --icon-size 128 \
+            --icon "Song Renamer.app" 160 200 \
+            --hide-extension "Song Renamer.app" \
+            --app-drop-link 460 200 \
+            "SongRenamer-macOS.dmg" \
+            "dist/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: SongRenamer-macOS.dmg
+
+  # ── Windows ───────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .exe
+        run: |
+          pyinstaller `
+            --windowed `
+            --onedir `
+            --name "Song Renamer" `
+            --collect-all librosa `
+            --collect-all soundfile `
+            --hidden-import PyQt6 `
+            --hidden-import soxr `
+            --hidden-import numba `
+            --noconfirm `
+            song_renamer.py
+        shell: pwsh
+
+      - name: Zip installer
+        run: Compress-Archive -Path "dist\Song Renamer" -DestinationPath "SongRenamer-Windows.zip"
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: SongRenamer-Windows.zip
+
+  # ── Release ───────────────────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Song Renamer ${{ github.ref_name }}"
+          body: |
+            ## Song Renamer ${{ github.ref_name }}
+
+            ### Download
+            | Platform | File |
+            |---|---|
+            | macOS (Apple Silicon + Intel) | `SongRenamer-macOS.dmg` |
+            | Windows 10/11 | `SongRenamer-Windows.zip` |
+
+            ### macOS Install
+            1. Open the DMG
+            2. Drag **Song Renamer** into Applications
+            3. Right-click → Open on first launch (bypasses Gatekeeper)
+
+            ### Windows Install
+            1. Extract the ZIP
+            2. Run `Song Renamer.exe` inside the folder
+
+            ### Features
+            - Analyses BPM, Camelot key & energy from audio files
+            - Renames files with tags automatically
+            - DJ Set Builder — 120-min musical journey, no repeated songs
+            - Stage prefixes: WRM / BLD / PEK / SUS / OUT
+          files: |
+            macos-dmg/SongRenamer-macOS.dmg
+            windows-zip/SongRenamer-Windows.zip
